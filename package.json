@@ -16,7 +16,7 @@
   "keywords": [],
   "author": "",
   "license": "ISC",
-  "type": "commonjs",
+  "type": "module",
   "bugs": {
     "url": "https://github.com/florianwiet/agentur-assistent/issues"
   },
@@ -24,8 +24,7 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.131.0",
     "@supabase/supabase-js": "^2.117.2",
-    "express": "^5.2.1",
-    "selenium-webdriver": "^4.50.0"
+    "express": "^5.2.1"
   },
   "devDependencies": {
     "vitest": "^5.0.3"
