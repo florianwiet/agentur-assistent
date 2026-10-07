@@ -1,4 +1,5 @@
 import { supabase } from "./db/supabase.js";
+import { ValidationError } from "./errors.js";
 
 // Beschreibungen für das LLM: Name, Zweck und Parameter (JSON Schema) jedes
 // Tools. Das LLM liest nur diese Texte, nicht den Code darunter.
@@ -52,6 +53,17 @@ export const toolDeclarations = [
   },
 ];
 
+const MAX_TITLE_LENGTH = 200;
+
+// Prüft Format und Kalender: "2026-02-30" passt zum Muster, existiert aber
+// nicht. Ungültige Daten werden je nach Format zu "Invalid Date" oder in den
+// Folgemonat gerollt, der Rückvergleich fängt beides ab.
+function isValidDate(value) {
+  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const date = new Date(`${value}T00:00:00Z`);
+  return !Number.isNaN(date.getTime()) && date.toISOString().startsWith(value);
+}
+
 // % und _ sind Platzhalter in LIKE. Escapen, damit sie aus der
 // Nutzereingabe wörtlich gesucht werden.
 function escapeLike(text) {
@@ -62,7 +74,7 @@ function escapeLike(text) {
 // Normalisiert wird nur die Suche, gespeichert bleibt die Originalschreibweise.
 async function findClient(clientName) {
   const search = typeof clientName === "string" ? clientName.trim().replace(/\s+/g, " ") : "";
-  if (!search) throw new Error("Kundenname fehlt");
+  if (!search) throw new ValidationError("Kundenname fehlt");
 
   const { data, error } = await supabase
     .from("clients")
@@ -72,7 +84,7 @@ async function findClient(clientName) {
     .limit(10);
 
   if (error) throw new Error(error.message);
-  if (!data.length) throw new Error(`Kein Kunde passt zu '${search}'`);
+  if (!data.length) throw new ValidationError(`Kein Kunde passt zu '${search}'`);
   if (data.length === 1) return data[0];
 
   // Mehrere Treffer: ein exakter Treffer gewinnt, sonst muss das LLM nachfragen
@@ -80,7 +92,7 @@ async function findClient(clientName) {
   if (exact) return exact;
 
   const names = data.map((client) => client.name).join(", ");
-  throw new Error(`Mehrere Kunden passen zu '${search}': ${names}. Bitte nachfragen, welcher gemeint ist.`);
+  throw new ValidationError(`Mehrere Kunden passen zu '${search}': ${names}. Bitte nachfragen, welcher gemeint ist.`);
 }
 
 const handlers = {
@@ -124,11 +136,21 @@ const handlers = {
   },
 
   async create_task({ client_name, title, due_date }) {
+    const cleanTitle = typeof title === "string" ? title.trim() : "";
+    if (!cleanTitle) throw new ValidationError("Titel der Aufgabe fehlt");
+    if (cleanTitle.length > MAX_TITLE_LENGTH) {
+      throw new ValidationError(`Titel ist länger als ${MAX_TITLE_LENGTH} Zeichen`);
+    }
+    if (due_date && !isValidDate(due_date)) {
+      throw new ValidationError(`'${due_date}' ist kein gültiges Datum im Format YYYY-MM-DD`);
+    }
+
+    // Erst nach der Validierung, damit keine unnötige Query läuft
     const client = await findClient(client_name);
 
     const { data, error } = await supabase
       .from("tasks")
-      .insert({ client_id: client.id, title, due_date: due_date || null })
+      .insert({ client_id: client.id, title: cleanTitle, due_date: due_date || null })
       .select("title, due_date, status")
       .single();
 
@@ -137,8 +159,10 @@ const handlers = {
   },
 };
 
-// Führt einen Tool-Aufruf des LLM aus. Fehler gehen als Ergebnis
-// zurück an das LLM, damit es sie dem Nutzer erklären kann.
+// Führt einen Tool-Aufruf des LLM aus. Fehler gehen als Ergebnis zurück an
+// das LLM, damit es sie dem Nutzer erklären kann. Nur ValidationErrors
+// verraten ihre Meldung, alles andere (DB-Fehler, Bugs) wird geloggt und
+// dem LLM nur allgemein gemeldet, damit keine Interna beim Nutzer landen.
 export async function runTool(name, args) {
   const handler = handlers[name];
   if (!handler) return { error: `Unbekanntes Tool: ${name}` };
@@ -146,6 +170,9 @@ export async function runTool(name, args) {
   try {
     return { output: await handler(args ?? {}) };
   } catch (error) {
-    return { error: error.message };
+    if (error instanceof ValidationError) return { error: error.message };
+
+    console.error(`Tool ${name} fehlgeschlagen:`, error.message);
+    return { error: `Technischer Fehler in ${name}, bitte später erneut versuchen` };
   }
 }

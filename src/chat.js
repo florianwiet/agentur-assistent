@@ -1,10 +1,13 @@
 import { supabase } from "./db/supabase.js";
 import { generate, LLM_PROVIDER } from "./llm/index.js";
 import { toolDeclarations, runTool } from "./tools.js";
+import { DatabaseError, LlmError } from "./errors.js";
 
 const HISTORY_LIMIT = 20;
 // Obergrenze für Tool-Runden pro Nachricht, damit keine Endlosschleife entsteht
 const MAX_TOOL_ROUNDS = 5;
+const GIVE_UP_REPLY =
+  "Ich konnte die Anfrage nicht abschließen. Bitte formuliere sie genauer oder teile sie auf.";
 
 // System prompt für das LLM
 const SYSTEM_PROMPT = `Du bist der interne Assistent eines Unternehmens.
@@ -25,14 +28,43 @@ async function loadHistory(userId) {
     .order("id", { ascending: false })
     .limit(HISTORY_LIMIT);
 
-  if (error) throw new Error(`Verlauf laden fehlgeschlagen: ${error.message}`);
+  if (error) throw new DatabaseError(error);
 
   return data.reverse().map((row) => ({ role: row.role, content: row.content }));
 }
 
 async function saveMessages(rows) {
   const { error } = await supabase.from("messages").insert(rows);
-  if (error) throw new Error(`Nachrichten speichern fehlgeschlagen: ${error.message}`);
+  if (error) throw new DatabaseError(error);
+}
+
+async function callLlm(messages) {
+  try {
+    return await generate({
+      system: `${SYSTEM_PROMPT}\nHeute ist ${today()}.`,
+      messages,
+      tools: toolDeclarations,
+    });
+  } catch (error) {
+    throw new LlmError(`${LLM_PROVIDER} nicht erreichbar`, error);
+  }
+}
+
+// Speichert den kompletten Durchlauf: Nutzernachricht, alle Tool-Aufrufe
+// und die Antwort. Die Tool-Aufrufe gehören dazu, weil z. B. create_task
+// schon Daten geändert hat.
+async function finish(userId, message, toolLog, reply) {
+  await saveMessages([
+    { user_id: userId, role: "user", content: message },
+    ...toolLog.map((entry) => ({
+      user_id: userId,
+      role: "tool",
+      content: JSON.stringify(entry),
+    })),
+    { user_id: userId, role: "assistant", content: reply },
+  ]);
+
+  return reply;
 }
 
 export async function chat(userId, message) {
@@ -41,27 +73,13 @@ export async function chat(userId, message) {
   const toolLog = [];
 
   for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
-    const response = await generate({
-      system: `${SYSTEM_PROMPT}\nHeute ist ${today()}.`,
-      messages,
-      tools: toolDeclarations,
-    });
+    const response = await callLlm(messages);
 
     if (!response.toolCalls.length) {
-      const reply = response.text;
-      if (!reply) throw new Error(`Leere Antwort von ${LLM_PROVIDER}`);
+      if (response.text) return finish(userId, message, toolLog, response.text);
 
-      await saveMessages([
-        { user_id: userId, role: "user", content: message },
-        ...toolLog.map((entry) => ({
-          user_id: userId,
-          role: "tool",
-          content: JSON.stringify(entry),
-        })),
-        { user_id: userId, role: "assistant", content: reply },
-      ]);
-
-      return reply;
+      console.warn(`Leere Antwort von ${LLM_PROVIDER} für ${userId}, Abbruch`);
+      return finish(userId, message, toolLog, GIVE_UP_REPLY);
     }
 
     // Das LLM will Tools aufrufen: seine Anfrage in den Verlauf übernehmen,
@@ -75,5 +93,8 @@ export async function chat(userId, message) {
     }
   }
 
-  throw new Error(`Mehr als ${MAX_TOOL_ROUNDS} Tool-Runden ohne Antwort`);
+  // Kein Fehler werfen: Tools mit Seiteneffekten sind evtl. schon gelaufen,
+  // der Durchlauf muss trotzdem im Verlauf landen.
+  console.warn(`Mehr als ${MAX_TOOL_ROUNDS} Tool-Runden für ${userId}, Abbruch`);
+  return finish(userId, message, toolLog, GIVE_UP_REPLY);
 }
