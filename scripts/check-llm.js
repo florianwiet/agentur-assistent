@@ -1,12 +1,10 @@
-import { gemini, GEMINI_MODEL } from "../src/llm/gemini.js";
+import { generate, LLM_PROVIDER, LLM_MODEL } from "../src/llm/index.js";
 
 try {
-  const response = await gemini.models.generateContent({
-    model: GEMINI_MODEL,
-    contents: "Antworte nur mit: ok",
-    config: { httpOptions: { timeout: 30_000 } },
+  const { text } = await generate({
+    messages: [{ role: "user", content: "Antworte nur mit: ok" }],
   });
-  console.log(`Verbindung ok (${GEMINI_MODEL}):`, response.text.trim());
+  console.log(`Verbindung ok (${LLM_PROVIDER}, ${LLM_MODEL}):`, text);
 } catch (error) {
   console.error("Verbindung fehlgeschlagen:", error.message);
   process.exit(1);

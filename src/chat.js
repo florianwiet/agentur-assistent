@@ -1,12 +1,12 @@
 import { supabase } from "./db/supabase.js";
-import { gemini, GEMINI_MODEL } from "./llm/gemini.js";
+import { generate, LLM_PROVIDER } from "./llm/index.js";
 import { toolDeclarations, runTool } from "./tools.js";
 
 const HISTORY_LIMIT = 20;
 // Obergrenze für Tool-Runden pro Nachricht, damit keine Endlosschleife entsteht
 const MAX_TOOL_ROUNDS = 5;
 
-// System prompt für Gemini
+// System prompt für das LLM
 const SYSTEM_PROMPT = `Du bist der interne Assistent eines Unternehmens.
 Du hilfst dem Team bei Fragen zu Kunden, Aufgaben und der täglichen Arbeit.
 Antworte auf Deutsch, knapp und sachlich.
@@ -27,10 +27,7 @@ async function loadHistory(userId) {
 
   if (error) throw new Error(`Verlauf laden fehlgeschlagen: ${error.message}`);
 
-  return data.reverse().map((row) => ({
-    role: row.role === "assistant" ? "model" : "user",
-    parts: [{ text: row.content }],
-  }));
+  return data.reverse().map((row) => ({ role: row.role, content: row.content }));
 }
 
 async function saveMessages(rows) {
@@ -40,26 +37,19 @@ async function saveMessages(rows) {
 
 export async function chat(userId, message) {
   const history = await loadHistory(userId);
-  const contents = [...history, { role: "user", parts: [{ text: message }] }];
+  const messages = [...history, { role: "user", content: message }];
   const toolLog = [];
 
   for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
-    const response = await gemini.models.generateContent({
-      model: GEMINI_MODEL,
-      contents,
-      config: {
-        systemInstruction: `${SYSTEM_PROMPT}\nHeute ist ${today()}.`,
-        tools: [{ functionDeclarations: toolDeclarations }],
-        // Gemini antwortet gelegentlich mit 503/504, daher kurze Wiederholungen
-        httpOptions: { timeout: 30_000, retryOptions: { attempts: 3 } },
-      },
+    const response = await generate({
+      system: `${SYSTEM_PROMPT}\nHeute ist ${today()}.`,
+      messages,
+      tools: toolDeclarations,
     });
 
-    const calls = response.functionCalls;
-
-    if (!calls?.length) {
-      const reply = response.text?.trim();
-      if (!reply) throw new Error("Leere Antwort von Gemini");
+    if (!response.toolCalls.length) {
+      const reply = response.text;
+      if (!reply) throw new Error(`Leere Antwort von ${LLM_PROVIDER}`);
 
       await saveMessages([
         { user_id: userId, role: "user", content: message },
@@ -74,19 +64,15 @@ export async function chat(userId, message) {
       return reply;
     }
 
-    // Gemini will Tools aufrufen: seine Anfrage unverändert in den Verlauf
-    // übernehmen, Tools ausführen und die Ergebnisse zurückschicken.
-    contents.push(response.candidates[0].content);
+    // Das LLM will Tools aufrufen: seine Anfrage in den Verlauf übernehmen,
+    // Tools ausführen und die Ergebnisse zurückschicken.
+    messages.push(response.message);
 
-    const parts = [];
-    for (const call of calls) {
+    for (const call of response.toolCalls) {
       const result = await runTool(call.name, call.args);
       toolLog.push({ name: call.name, args: call.args, result });
-      parts.push({
-        functionResponse: { id: call.id, name: call.name, response: result },
-      });
+      messages.push({ role: "tool", toolCallId: call.id, name: call.name, result });
     }
-    contents.push({ role: "user", parts });
   }
 
   throw new Error(`Mehr als ${MAX_TOOL_ROUNDS} Tool-Runden ohne Antwort`);

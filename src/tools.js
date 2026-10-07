@@ -1,18 +1,18 @@
 import { supabase } from "./db/supabase.js";
 
-// Beschreibungen für Gemini: Name, Zweck und Parameter jedes Tools.
-// Gemini liest nur diese Texte, nicht den Code darunter.
+// Beschreibungen für das LLM: Name, Zweck und Parameter (JSON Schema) jedes
+// Tools. Das LLM liest nur diese Texte, nicht den Code darunter.
 export const toolDeclarations = [
   {
     name: "list_clients",
     description: "Listet alle Kunden mit Kontakt-E-Mail und Notizen auf.",
-    parametersJsonSchema: { type: "object", properties: {} },
+    parameters: { type: "object", properties: {} },
   },
   {
     name: "list_open_tasks",
     description:
       "Listet offene Aufgaben auf, sortiert nach Fälligkeit. Ohne client_name werden die offenen Aufgaben aller Kunden geliefert.",
-    parametersJsonSchema: {
+    parameters: {
       type: "object",
       properties: {
         client_name: {
@@ -25,7 +25,7 @@ export const toolDeclarations = [
   {
     name: "create_task",
     description: "Legt eine neue offene Aufgabe für einen Kunden an.",
-    parametersJsonSchema: {
+    parameters: {
       type: "object",
       properties: {
         client_name: { type: "string", description: "Exakter Kundenname." },
@@ -96,8 +96,8 @@ const handlers = {
   },
 };
 
-// Führt einen Tool-Aufruf von Gemini aus. Fehler gehen als Ergebnis
-// zurück an Gemini, damit es sie dem Nutzer erklären kann.
+// Führt einen Tool-Aufruf des LLM aus. Fehler gehen als Ergebnis
+// zurück an das LLM, damit es sie dem Nutzer erklären kann.
 export async function runTool(name, args) {
   const handler = handlers[name];
   if (!handler) return { error: `Unbekanntes Tool: ${name}` };
