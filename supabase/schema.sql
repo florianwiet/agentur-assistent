@@ -2,7 +2,7 @@
 
 create table clients (
   id            uuid primary key default gen_random_uuid(),
-  name          text not null unique,
+  name          text not null,
   contact_email text,
   notes         text,
   created_at    timestamptz not null default now()
@@ -24,6 +24,10 @@ create table messages (
   content    text not null,
   created_at timestamptz not null default now()
 );
+
+-- Kundennamen eindeutig ohne Groß-/Kleinschreibung,
+-- verhindert z. B. 'Bäckerei Huber' und 'bäckerei huber' nebeneinander
+create unique index clients_name_lower_idx on clients (lower(name));
 
 -- Indizes für die häufigsten Abfragen
 
