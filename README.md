@@ -1,6 +1,6 @@
 # Agentur-Assistent
 
-Ein Chat-Agent für Mitarbeiter einer Marketing-Agentur. Man schreibt ihm in natürlicher Sprache, z. B. „Was ist bei Autohaus Maier noch offen?“ oder „Leg für Huber eine Aufgabe bis Freitag an“. Der Agent entscheidet selbst, welche Tools er aufruft, liest bzw. schreibt Kundendaten und Aufgaben in Supabase und antwortet auf Deutsch.
+Chat-Agent mit Tool Calling falls notwendig.
 
 Lernprojekt: ein kleiner Nachbau eines produktiven Agent-Stacks (Node.js, Supabase, Container). Der Agent-Loop ist selbst geschrieben, ohne LangChain o. ä.
 
@@ -74,11 +74,11 @@ Antwort: `{ "reply": "..." }`
 
 Fehler kommen immer als `{ "error": "..." }` zurück:
 
-| Status | Bedeutung |
-|---|---|
-| 400 | Ungültiger Body (kein JSON, `user_id`/`message` fehlen oder sind leer) |
-| 502 | LLM nicht erreichbar |
-| 503 | Datenbank nicht erreichbar |
+| Status | Bedeutung                                                                  |
+| ------ | -------------------------------------------------------------------------- |
+| 400    | Ungültiger Body (kein JSON,`user_id`/`message` fehlen oder sind leer) |
+| 502    | LLM nicht erreichbar                                                       |
+| 503    | Datenbank nicht erreichbar                                                 |
 
 ## Offen
 
