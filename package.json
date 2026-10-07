@@ -10,7 +10,8 @@
     "start": "node --env-file=.env src/server.js",
     "dev": "node --env-file=.env --watch src/server.js",
     "db:check": "node --env-file=.env scripts/check-db.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "llm:check": "node --env-file=.env scripts/check-llm.js"
   },
   "repository": {
     "type": "git",
@@ -25,7 +26,7 @@
   },
   "homepage": "https://github.com/florianwiet/agentur-assistent#readme",
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.131.0",
+    "@google/genai": "^2.27.0",
     "@supabase/supabase-js": "^2.117.2",
     "express": "^5.2.1"
   },
