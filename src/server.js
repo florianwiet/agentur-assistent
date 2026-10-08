@@ -1,3 +1,4 @@
+import path from "node:path";
 import express from "express";
 import { chat } from "./chat.js";
 import { AppError, ValidationError } from "./errors.js";
@@ -7,6 +8,9 @@ const MAX_MESSAGE_LENGTH = 4000;
 const app = express();
 
 app.use(express.json());
+
+// Chat-Oberfläche aus public/, gleicher Origin wie /chat, daher kein CORS nötig
+app.use(express.static(path.join(import.meta.dirname, "..", "public")));
 
 app.get("/health", (req, res) => {
   res.json({ status: "ok" });
